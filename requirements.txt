@@ -1,0 +1,6 @@
+ollama
+streamlit
+groq
+pypdf
+pyttsx3
+requests
