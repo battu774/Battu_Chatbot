@@ -1,147 +1,455 @@
 import os
-import sys
 import requests
-import threading
 import streamlit as st
 from pypdf import PdfReader
 
-# 1. Dependency Handling
+# --------------------------------------------------
+# GROQ IMPORT
+# --------------------------------------------------
+
 try:
     from groq import Groq
     HAS_GROQ = True
 except ImportError:
     HAS_GROQ = False
 
-# 2. Page Configuration
+
+# --------------------------------------------------
+# PAGE CONFIGURATION
+# --------------------------------------------------
+
 st.set_page_config(
-    page_title="Battu's Mock Interviewer", 
-    page_icon="🎙️", 
+    page_title="Battu's Mock Interviewer",
+    page_icon="🎙️",
     layout="wide"
 )
 
-# 3. Custom Theme CSS
-st.markdown("""
-<style>
-/* Main Background: Light Blue Gradient */
-.stApp {
-    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 50%, #7dd3fc 100%) !important;
-    color: #0f172a !important;
-}
 
-/* Sidebar Custom Styling */
-section[data-testid="stSidebar"] {
-    background-color: #ec4899 !important;
-}
-section[data-testid="stSidebar"] * {
-    color: #ffffff !important;
-    font-weight: 600 !important;
-}
+# --------------------------------------------------
+# SYSTEM PROMPT
+# --------------------------------------------------
 
-/* Chat Card Container */
-.stChatMessage {
-    background: #ffffff !important;
-    border: 2px solid #38bdf8 !important;
-    border-radius: 16px !important;
-    padding: 16px !important;
-    margin-bottom: 12px !important;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
-}
+SYSTEM_PROMPT = """
+You are Battu's Professional Technical Mock Interviewer.
 
-/* Message Text Styling */
-.stChatMessage p, .stChatMessage div, .stChatMessage span {
-    color: #000000 !important;
-    font-size: 1.05rem !important;
-    font-weight: 600 !important;
-    line-height: 1.6 !important;
-}
+Candidate Experience:
+4.5 years of Software Engineering experience.
 
-/* Input Box Formatting */
-div[data-baseweb="input"] input {
-    color: #000000 !important;
-    background-color: #ffffff !important;
-    font-size: 1rem !important;
-    font-weight: 600 !important;
-}
-</style>
-""", unsafe_allow_html=True)
+Candidate Skills:
+Python, Java, SQL, Data Analytics, Machine Learning,
+Deep Learning and Generative AI.
 
-# 4. Sidebar Content & Resume Upload
-st.sidebar.title("BattuDev AI Settings")
-uploaded_file = st.sidebar.file_uploader("Upload Resume (PDF)", type=["pdf"])
+Interview Rules:
+
+1. Ask only ONE question at a time.
+2. Ask technical, practical and scenario-based questions.
+3. After the candidate answers:
+   - Evaluate the answer.
+   - Mention what was correct.
+   - Mention what was missing.
+   - Give a score out of 10.
+   - Ask the next question.
+4. Keep responses concise and professional.
+5. Use the candidate's resume when available.
+6. Gradually increase the difficulty.
+7. Do not ask multiple questions at once.
+8. Behave like a real technical interviewer.
+9. If the answer is incorrect, explain the correct concept briefly.
+10. Focus on interview-relevant knowledge.
+"""
+
+
+# --------------------------------------------------
+# CUSTOM CSS
+# --------------------------------------------------
+
+st.markdown(
+    """
+    <style>
+
+    .stApp {
+        background: linear-gradient(
+            135deg,
+            #e0f2fe 0%,
+            #bae6fd 50%,
+            #7dd3fc 100%
+        );
+    }
+
+    section[data-testid="stSidebar"] {
+        background-color: #ec4899;
+    }
+
+    section[data-testid="stSidebar"] * {
+        color: white !important;
+        font-weight: 600 !important;
+    }
+
+    .stChatMessage {
+        background: white !important;
+        border: 2px solid #38bdf8 !important;
+        border-radius: 16px !important;
+        padding: 15px !important;
+        margin-bottom: 10px !important;
+    }
+
+    .stChatMessage p {
+        color: black !important;
+        font-size: 16px !important;
+        line-height: 1.6 !important;
+    }
+
+    div[data-baseweb="input"] input {
+        color: black !important;
+        background-color: white !important;
+        font-size: 16px !important;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# --------------------------------------------------
+# SIDEBAR
+# --------------------------------------------------
+
+st.sidebar.title("🎙️ BattuDev AI Settings")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Resume (PDF)",
+    type=["pdf"]
+)
+
+
+# --------------------------------------------------
+# RESUME EXTRACTION
+# --------------------------------------------------
 
 resume_text = ""
+
 if uploaded_file is not None:
+
     try:
+
         reader = PdfReader(uploaded_file)
+
         for page in reader.pages:
+
             text = page.extract_text()
+
             if text:
                 resume_text += text + "\n"
-        st.sidebar.success("Resume Uploaded Successfully!")
+
+        st.sidebar.success(
+            "Resume uploaded successfully!"
+        )
+
     except Exception as e:
-        st.sidebar.error("Error reading PDF file.")
 
-# 5. Header Section
-st.title("🎙️ Battu's Mock Interviewer")
+        st.sidebar.error(
+            f"Error reading resume: {e}"
+        )
 
-# Initialize Chat Session State
+
+# --------------------------------------------------
+# SESSION STATE
+# --------------------------------------------------
+
 if "messages" not in st.session_state:
-    st.session_state.messages = []
 
-# Display Conversation History
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+    st.session_state.messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        }
+    ]
 
-# 6. User Input Handling & Multi-Engine AI Inference
-if user_prompt := st.chat_input("Type your answer or question here..."):
-    # Render user message
-    st.chat_message("user").write(user_prompt)
-    st.session_state.messages.append({"role": "user", "content": user_prompt})
 
-    ai_reply = ""
-    
-    # Construction of prompt context
-    prompt_payload = user_prompt
+# --------------------------------------------------
+# HEADER
+# --------------------------------------------------
+
+st.title(
+    "🎙️ Battu's Mock Interviewer"
+)
+
+st.caption(
+    "AI-Powered Technical Mock Interviewer | "
+    "Groq + Ollama"
+)
+
+
+# --------------------------------------------------
+# DISPLAY CHAT HISTORY
+# --------------------------------------------------
+
+for message in st.session_state.messages:
+
+    if message["role"] == "system":
+        continue
+
+    with st.chat_message(
+        message["role"]
+    ):
+
+        st.write(
+            message["content"]
+        )
+
+
+# --------------------------------------------------
+# AI RESPONSE FUNCTION
+# --------------------------------------------------
+
+def get_ai_response():
+
+    # --------------------------------------------------
+    # RESUME CONTEXT
+    # --------------------------------------------------
+
+    resume_context = ""
+
     if resume_text:
-        prompt_payload = f"Context Resume: {resume_text}\n\nUser Question/Answer: {user_prompt}"
 
-    # Try Cloud Engine (Groq API)
-    cloud_success = False
+        resume_context = f"""
+Candidate Resume:
+
+{resume_text}
+
+Use this resume when asking relevant interview questions.
+Do not repeat the entire resume in your response.
+"""
+
+
+    # --------------------------------------------------
+    # GROQ API KEY
+    # --------------------------------------------------
+
+    api_key = None
+
     try:
-        api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
-        if HAS_GROQ and api_key:
-            client = Groq(api_key=api_key)
-            chat_completion = client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "You are a professional technical interviewer."},
-                    {"role": "user", "content": prompt_payload}
-                ],
-                model="llama-3.3-70b-versatile"
-            )
-            ai_reply = chat_completion.choices[0].message.content
-            cloud_success = True
-        else:
-            cloud_error_reason = "API Key missing in Secrets/Env."
-    except Exception as cloud_err:
-        cloud_error_reason = str(cloud_err)
 
-    # Fallback to Local Engine (Ollama)
-    if not cloud_success:
+        api_key = (
+            st.secrets.get("GROQ_API_KEY")
+            or os.getenv("GROQ_API_KEY")
+        )
+
+    except Exception:
+
+        api_key = os.getenv(
+            "GROQ_API_KEY"
+        )
+
+
+    # --------------------------------------------------
+    # CLOUD ENGINE - GROQ
+    # --------------------------------------------------
+
+    if HAS_GROQ and api_key:
+
         try:
-            payload = {
-                "model": "qwen2.5:0.5b", 
-                "prompt": prompt_payload, 
-                "stream": False
-            }
-            resp = requests.post("http://localhost:11434/api/generate", json=payload, timeout=5)
-            if resp.status_code == 200:
-                ai_reply = resp.json().get("response", "No response from local Ollama.")
-            else:
-                ai_reply = f"Cloud Error ({cloud_error_reason}) & Local Ollama HTTP Error."
-        except Exception:
-            ai_reply = f"Cloud Error: {cloud_error_reason} | Local Ollama server is offline."
 
-    # Render Assistant Response
-    st.chat_message("assistant").write(ai_reply)
-    st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+            client = Groq(
+                api_key=api_key
+            )
+
+            groq_messages = []
+
+            # System message
+            groq_messages.append(
+                {
+                    "role": "system",
+                    "content":
+                        SYSTEM_PROMPT +
+                        "\n" +
+                        resume_context
+                }
+            )
+
+            # Conversation history
+            for message in st.session_state.messages:
+
+                if message["role"] in [
+                    "user",
+                    "assistant"
+                ]:
+
+                    groq_messages.append(
+                        {
+                            "role": message["role"],
+                            "content": message["content"]
+                        }
+                    )
+
+
+            completion = client.chat.completions.create(
+
+                model="llama-3.1-8b-instant",
+
+                messages=groq_messages,
+
+                temperature=0.3,
+
+                max_tokens=500
+            )
+
+
+            return (
+                completion
+                .choices[0]
+                .message
+                .content
+            )
+
+
+        except Exception as e:
+
+            groq_error = str(e)
+
+    else:
+
+        groq_error = (
+            "Groq API key not configured."
+        )
+
+
+    # --------------------------------------------------
+    # LOCAL ENGINE - OLLAMA
+    # --------------------------------------------------
+
+    try:
+
+        conversation = ""
+
+        for message in st.session_state.messages:
+
+            if message["role"] == "user":
+
+                conversation += (
+                    f"\nCandidate:\n"
+                    f"{message['content']}\n"
+                )
+
+            elif message["role"] == "assistant":
+
+                conversation += (
+                    f"\nInterviewer:\n"
+                    f"{message['content']}\n"
+                )
+
+
+        prompt = f"""
+{SYSTEM_PROMPT}
+
+{resume_context}
+
+Previous Interview Conversation:
+
+{conversation}
+
+Continue the interview from the current conversation.
+
+Important:
+- Evaluate the candidate's latest answer.
+- Give a score out of 10.
+- Explain briefly what was correct.
+- Explain briefly what was missing.
+- Ask exactly ONE next interview question.
+"""
+
+
+        response = requests.post(
+
+            "http://localhost:11434/api/generate",
+
+            json={
+                "model": "qwen2.5:0.5b",
+                "prompt": prompt,
+                "stream": False
+            },
+
+            timeout=120
+        )
+
+
+        if response.status_code == 200:
+
+            return response.json().get(
+                "response",
+                "No response received from Ollama."
+            )
+
+
+        return (
+            "AI Engine Error.\n\n"
+            f"Groq Error: {groq_error}\n"
+            f"Ollama HTTP Status: "
+            f"{response.status_code}"
+        )
+
+
+    except Exception as e:
+
+        return (
+            "Both AI engines are unavailable.\n\n"
+            f"Groq Error: {groq_error}\n"
+            f"Ollama Error: {str(e)}"
+        )
+
+
+# --------------------------------------------------
+# CHAT INPUT
+# --------------------------------------------------
+
+user_prompt = st.chat_input(
+    "Type your interview answer..."
+)
+
+
+# --------------------------------------------------
+# PROCESS USER INPUT
+# --------------------------------------------------
+
+if user_prompt:
+
+    # Save user message
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": user_prompt
+        }
+    )
+
+
+    # Display user message
+    with st.chat_message("user"):
+
+        st.write(
+            user_prompt
+        )
+
+
+    # Generate AI response
+    with st.chat_message("assistant"):
+
+        with st.spinner(
+            "AI is evaluating your answer..."
+        ):
+
+            ai_reply = get_ai_response()
+
+
+        st.write(
+            ai_reply
+        )
+
+
+    # Save AI response
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": ai_reply
+        }
+    )
